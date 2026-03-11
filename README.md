@@ -674,13 +674,15 @@ for proj in intercept.projections:
 When combined with [Object-Type Awareness](#extension-object-type-awareness), intercept prediction becomes physically constrained. The system knows the target can't move in ways that violate its drift profile, so impossible intercept projections are automatically suppressed:
 
 ```
-Target: sedan on highway, velocity ≈ +X at 70mph
-Homing: drone at 45mph, 200m behind
+Target: package on conveyor belt, velocity ≈ +X at 0.8m/s
+Homing: robotic pick arm, 0.5m above, moving at 1.2m/s
 
-Intercept projection from C₊z → target would need to fly upward → sedan can't fly → SUPPRESSED
-Intercept projection from C₋ₓ → target would need to instantly reverse at 70mph → exceeds turn rate → SUPPRESSED
-Intercept projection from C₊ₓ → target continues forward → physically consistent → HIGH CONFIDENCE
-Intercept projection from C₊ₓ₊z → target continues forward with climb → impossible on ground → SUPPRESSED
+Intercept projection from C₊z → package would need to rise off belt → belt-constrained → SUPPRESSED
+Intercept projection from C₋z → package would need to sink through belt → physically impossible → SUPPRESSED
+Intercept projection from C₋ₓ → package would need to reverse on belt → belt is one-directional → SUPPRESSED
+Intercept projection from C₊ₓ → package continues forward on belt → physically consistent → HIGH CONFIDENCE
+Intercept projection from C₊ₓ₊z → package lifts while moving → not yet picked up → SUPPRESSED
+Intercept projection from C₀  → package stops on moving belt → no jam detected → LOW CONFIDENCE
 ```
 
 This dramatically tightens the intercept zone early in pursuit, because physically impossible projections are eliminated before they can widen the uncertainty spread.
