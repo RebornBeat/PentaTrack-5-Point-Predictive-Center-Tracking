@@ -374,4 +374,253 @@ The design principle: **start minimal, enable what you need.** A drone tracking 
 ├──────────────┴────────────────┴───────────────────────────────┤
 │                        Tracker State                          │
 │  Per-object center history, velocity vectors, probability     │
-│  weights, trajectory buffer, parent-child g?
+│  weights, trajectory buffer, parent-child graph               │
+├──────────────────────────────────────────────────────────────┤
+│                     Output / Integration                      │
+│  Raw center streams • Predicted trajectory • Confidence map • │
+│  Lineage trace • Drone autopilot interface • Viz overlay      │
+└──────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Use Cases
+
+- **Drone Object Tracking** — Predict where a target is heading before the drone's gimbal or flight path adjusts. Feed PentaTrack centers into a PID controller for smoother pursuit. With velocity weighting enabled, the dominant-weight center becomes the aim point, with diagonal centers providing anticipatory correction for banking or climbing targets.
+- **Autonomous Vehicle Perception** — Anticipate pedestrian or vehicle movement from bounding box streams. The recursive depth allows multi-step lookahead. Enable diagonals to capture the reality that pedestrians rarely move in pure cardinal directions. With metadata + velocity weighting, parent-chain lineage analysis can detect intention changes (e.g., a pedestrian moving right suddenly shifts weight to up-right = stepping off curb).
+- **Sports Analytics** — Track player or ball movement with directional prediction for play analysis and broadcast augmentation. Velocity weighting naturally captures acceleration, deceleration, and direction changes. Full node metadata enables post-game trajectory reconstruction.
+- **Surveillance & Security** — Predict subject trajectory across camera feeds. Predictive centers can trigger alerts before a subject reaches a boundary. With metadata enabled, confidence-stamped and timestamped centers enable forensic timeline reconstruction.
+- **Robotics / Pick-and-Place** — Predict object drift on conveyor belts or in manipulation tasks where sub-frame position matters. Fractional displacement mode captures sub-pixel drift, and enabling diagonals handles objects moving at angles to the belt direction.
+
+---
+
+## Quick Start
+
+### Minimal (5-Point Core)
+
+```python
+from pentatrack import PentaTracker, TrackingConfig
+
+# Bare minimum — 5-point tracking, no extensions
+config = TrackingConfig(
+    mode="dual",              # "discrete", "proportional", or "dual"
+    delta_discrete=1.0,       # Full displacement magnitude
+    delta_proportional=0.10,  # 10% fractional displacement
+    recursion_depth=2,        # How many levels of center expansion
+)
+
+tracker = PentaTracker(config)
+
+# Feed a bounding box [x_min, y_min, x_max, y_max]
+bbox = [120, 200, 280, 400]
+prediction = tracker.update(bbox)
+
+# Access the 5 base centers
+for center in prediction.centers:
+    print(f"{center.label}: ({center.x:.2f}, {center.y:.2f}, {center.z:.2f})")
+
+# Access recursive child centers at depth 2
+for center in prediction.centers:
+    for child in center.children:
+        print(f"  └─ {child.label}: ({child.x:.2f}, {child.y:.2f}, {child.z:.2f})")
+
+# Get the highest-probability next position
+best = prediction.most_likely()
+print(f"Predicted next center: {best}")
+```
+
+### Full Stack (All Extensions)
+
+```python
+from pentatrack import PentaTracker, TrackingConfig
+
+# Everything enabled — 9-point, metadata, velocity-weighted
+config = TrackingConfig(
+    mode="dual",
+    delta_discrete=1.0,
+    delta_proportional=0.10,
+    recursion_depth=2,
+    enable_diagonals=True,         # 5pt → 9pt compass model
+    enable_metadata=True,          # Rich CenterNode data
+    enable_velocity_weighting=True,# Bias tree toward observed motion
+    enable_y_axis=False,           # Set True for 3D / depth tracking
+    weight_strategy="cosine",      # Velocity weighting method
+    velocity_method="ema",         # Velocity estimation method
+    velocity_ema_alpha=0.3,        # EMA smoothing factor
+)
+
+tracker = PentaTracker(config)
+
+bbox = [120, 200, 280, 400]
+prediction = tracker.update(bbox)
+
+# Access the 9 base centers with full metadata
+for center in prediction.centers:
+    print(f"{center.label}: pos={center.position}, "
+          f"vel={center.velocity}, conf={center.confidence:.3f}, "
+          f"t={center.timestamp:.4f}")
+
+# Access recursive child centers at depth 2
+for center in prediction.centers:
+    for child in center.children:
+        print(f"  └─ {child.label}: pos={child.position}, "
+              f"conf={child.confidence:.3f}, parent={child.parent.label}")
+
+# Get the highest-probability next position
+best = prediction.most_likely()
+print(f"Predicted next center: {best.position} (conf: {best.confidence:.3f})")
+
+# Trace lineage from any node back to root
+leaf = prediction.deepest_most_likely()
+path = leaf.trace_lineage()  # Returns [root, ..., parent, leaf]
+print(f"Predicted trajectory: {[n.label for n in path]}")
+
+# Get velocity-weighted probability distribution
+weights = prediction.weight_distribution()
+for label, weight in sorted(weights.items(), key=lambda x: -x[1]):
+    print(f"  {label}: {weight:.2%}")
+```
+
+---
+
+## Configuration Reference
+
+### Core Parameters
+
+| Parameter             | Type    | Default  | Description                                              |
+|-----------------------|---------|----------|----------------------------------------------------------|
+| `mode`                | str     | `"dual"` | Displacement mode: `discrete`, `proportional`, or `dual` |
+| `delta_discrete`      | float   | `1.0`    | Magnitude for full-shift displacement                    |
+| `delta_proportional`  | float   | `0.10`   | Fraction of bbox dimension for micro-shift               |
+| `recursion_depth`     | int     | `1`      | Levels of recursive center expansion                     |
+| `prune_threshold`     | float   | `0.05`   | Drop branches below this probability weight              |
+| `confidence_decay`    | float   | `0.85`   | Per-depth confidence multiplier for child centers        |
+
+### Extension Toggles
+
+| Parameter                   | Type    | Default  | Description                                           |
+|-----------------------------|---------|----------|-------------------------------------------------------|
+| `enable_diagonals`          | bool    | `False`  | Add 4 diagonal centers (5pt → 9pt)                    |
+| `enable_y_axis`             | bool    | `False`  | Add forward/backward depth axis                       |
+| `enable_metadata`           | bool    | `False`  | Attach rich data to each center node                  |
+| `enable_velocity_weighting` | bool    | `False`  | Bias prediction tree by observed velocity             |
+
+### Velocity Weighting Parameters (when enabled)
+
+| Parameter              | Type    | Default    | Description                                               |
+|------------------------|---------|------------|-----------------------------------------------------------|
+| `weight_strategy`      | str     | `"cosine"` | Weight distribution: `cosine`, `softmax`, `decay`, `hybrid`|
+| `softmax_temperature`  | float   | `1.0`      | Sharpness for softmax strategy (lower = sharper)          |
+| `min_weight`           | float   | `0.01`     | Floor weight — no center drops to true zero               |
+| `velocity_method`      | str     | `"ema"`    | Velocity estimation: `last_delta`, `wma`, `ema`, `lsq`   |
+| `velocity_ema_alpha`   | float   | `0.3`      | Smoothing factor for EMA velocity estimation              |
+| `history_window`       | int     | `30`       | Number of past frames used for velocity estimation        |
+
+---
+
+## How It Differs from Traditional Tracking
+
+| Aspect                 | Traditional (Kalman/SORT)          | PentaTrack                                       |
+|------------------------|------------------------------------|--------------------------------------------------|
+| Centers per object     | 1 (centroid)                       | 5 base, up to 27+ with extensions                |
+| Prediction model       | Linear/constant velocity           | Spatial possibility tree (recursive)             |
+| Directional coverage   | Single vector                      | Cardinal + optional diagonal + optional depth    |
+| Movement granularity   | Single predicted position          | Full + fractional + directional                  |
+| Lookahead              | 1 step (typically)                 | N steps via recursion depth                      |
+| Node metadata          | Position only                      | Optional: velocity, confidence, timestamp, lineage |
+| Probability model      | Gaussian uncertainty               | Optional: velocity-weighted directional distribution |
+| Trajectory analysis    | Smoothed path                      | Optional: full parent-chain lineage reconstruction |
+| Output                 | Next estimated position            | Weighted probability field of positions          |
+
+PentaTrack doesn't replace Kalman filters or SORT — it adds a **spatial prediction layer** on top of any detection pipeline. Feed it bounding boxes from YOLO, Detectron, or any detector and it handles the rest. With velocity weighting enabled, the weighted centers can also be fed *into* a Kalman filter as informed priors, combining the strengths of both approaches.
+
+---
+
+## Roadmap
+
+### Core (Complete)
+- [x] Core 5-point center engine (X/Z cardinal axes)
+- [x] Discrete and proportional displacement modes
+- [x] Dual-mode simultaneous tracking
+- [x] Recursive center expansion with depth control
+
+### Extensions (Complete)
+- [x] Diagonal center expansion (optional 9-point compass model)
+- [x] Center node data model (position, velocity, confidence, timestamp, parent)
+- [x] Velocity-weighted prediction (cosine, softmax, decay, hybrid)
+- [x] Velocity estimation methods (EMA, WMA, LSQ, last-delta)
+- [x] Parent-chain lineage traversal
+- [x] Confidence propagation through recursion
+
+### Planned
+- [ ] Y-axis (depth/forward-backward) integration → 27-point 3D model
+- [ ] Adaptive pruning (auto-tune threshold from motion characteristics)
+- [ ] YOLO v8/v11 detection bridge
+- [ ] Drone autopilot integration (MAVLink)
+- [ ] Real-time visualization overlay with weight heatmap
+- [ ] Multi-object tracking with shared prediction fields
+- [ ] Cross-object interaction prediction (collision, convergence)
+- [ ] GPU-accelerated prediction tree expansion (CUDA kernels)
+- [ ] Temporal prediction (time-to-arrival at boundary centers)
+
+---
+
+## Project Structure
+
+```
+pentatrack/
+├── pentatrack/
+│   ├── __init__.py
+│   ├── core.py                # 5-point center computation engine
+│   ├── config.py              # TrackingConfig dataclass
+│   ├── prediction_tree.py     # Recursive center expansion
+│   ├── pruning.py             # Branch pruning strategies
+│   ├── tracker.py             # PentaTracker main interface
+│   ├── extensions/
+│   │   ├── __init__.py
+│   │   ├── diagonals.py       # 4 diagonal centers (5pt → 9pt)
+│   │   ├── metadata.py        # CenterNode rich data model
+│   │   ├── velocity.py        # Velocity estimation (EMA, WMA, LSQ)
+│   │   └── weighting.py       # Weight distribution strategies
+│   └── utils/
+│       ├── bbox.py            # Bounding box utilities
+│       ├── coords.py          # Coordinate system helpers
+│       ├── lineage.py         # Parent-chain traversal tools
+│       └── viz.py             # Visualization and heatmap tools
+├── examples/
+│   ├── basic_tracking.py      # Minimal 5-point usage
+│   ├── with_diagonals.py      # 9-point compass model
+│   ├── velocity_weighting.py  # Full weighted prediction
+│   ├── lineage_trace.py       # Trajectory reconstruction
+│   ├── drone_pursuit.py       # Drone integration example
+│   └── webcam_demo.py         # Live camera demo
+├── tests/
+├── README.md
+├── LICENSE
+└── pyproject.toml
+```
+
+---
+
+## Requirements
+
+- Python 3.10+
+- NumPy
+- OpenCV (optional — for visualization and camera input)
+- Ultralytics (optional — for YOLO detection bridge)
+
+---
+
+## License
+
+MIT — use it, fork it, build on it.
+
+---
+
+## Contributing
+
+This project is in active early development. If you're working in object tracking, drone systems, or computer vision and this concept resonates, open an issue or reach out. The prediction model is intentionally framework-agnostic — contributions toward integrations with specific detection pipelines, autopilot systems, or hardware platforms are welcome.
+
+---
+
+> *"Every movement has a center. Every center predicts the next. Velocity decides which one matters."*
