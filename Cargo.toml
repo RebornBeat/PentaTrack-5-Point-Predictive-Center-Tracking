@@ -1,0 +1,17 @@
+[package]
+name = "pentatrack"
+version = "0.1.0"
+edition = "2021"
+description = "5-Point Predictive Center Tracking — recursive bounding box prediction for real-time object tracking"
+license = "MIT"
+
+[dependencies]
+omni-sense-core = { path = "../omni-sense/crates/omni-sense-core" }
+nalgebra = { version = "0.33", features = ["serde-serialize"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+rand = "0.8"
+
+[dev-dependencies]
+approx = "0.5"

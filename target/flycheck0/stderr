@@ -1,0 +1,14 @@
+    Updating crates.io index
+error: failed to get `omni-sense-core` as a dependency of package `pentatrack v0.1.0 (/home/rebornbeat/Projects/PentaTrack-5-Point-Predictive-Center-Tracking)`
+
+Caused by:
+  failed to load source for dependency `omni-sense-core`
+
+Caused by:
+  Unable to update /home/rebornbeat/Projects/omni-sense/crates/omni-sense-core
+
+Caused by:
+  failed to read `/home/rebornbeat/Projects/omni-sense/crates/omni-sense-core/Cargo.toml`
+
+Caused by:
+  No such file or directory (os error 2)

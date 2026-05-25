@@ -1,0 +1,32 @@
+{
+  "sedan": {
+    "max_lateral_drift_ms": 10.0,
+    "max_vertical_drift_ms": 0.5,
+    "max_longitudinal_drift_ms": 40.0,
+    "max_turn_rate_deg_s": 60.0,
+    "can_hover": false,
+    "can_reverse": true,
+    "min_speed_ms": 0.0,
+    "max_speed_ms": 55.0,
+    "anomaly_thresholds": {
+      "lateral_ms": 15.0,
+      "approach_accel_ms2": 8.0,
+      "closing_velocity_ms": 25.0
+    }
+  },
+  "motorcycle": {
+    "max_lateral_drift_ms": 8.0,
+    "max_vertical_drift_ms": 1.0,
+    "max_longitudinal_drift_ms": 50.0,
+    "max_turn_rate_deg_s": 90.0,
+    "can_hover": false,
+    "can_reverse": false,
+    "min_speed_ms": 0.0,
+    "max_speed_ms": 65.0,
+    "anomaly_thresholds": {
+      "lateral_ms": 15.0,
+      "approach_accel_ms2": 10.0,
+      "closing_velocity_ms": 30.0
+    }
+  }
+}
